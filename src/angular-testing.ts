@@ -104,7 +104,7 @@ const fallbackMountedHandles = new Set<MountedHandle>();
 
 const supportedAngularMajorRange = {
   min: 18,
-  max: 19,
+  max: 21,
 } as const;
 
 const currentAngularMajor = Number.parseInt(VERSION.major, 10);

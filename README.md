@@ -30,7 +30,7 @@ npm i -D poku @pokujs/angular
 ```
 
 This package is intended for Angular workspaces that already depend on Angular.
-Supported Angular majors are `18` and `19`.
+Supported Angular majors are `18.x`, `19.x`, `20.x`, and `21.x`.
 
 Required Angular peers:
 
@@ -118,9 +118,38 @@ await test('increments the counter', async () => {
 | ------- | :----: |
 | `18.x`  |   ✅   |
 | `19.x`  |   ✅   |
+| `20.x`  |   ✅   |
+| `21.x`  |   ✅   |
 
 Signal-input rerender support relies on Angular's current JIT signal internals,
-so new Angular majors are intentionally not claimed until they are verified.
+and this package verifies current support through Angular 21.
+
+### Poku And DOM Support
+
+| Package | Supported range |
+| ------- | :-------------: |
+| `poku` |   `>=4.1.0`    |
+| `happy-dom` |    `>=20`     |
+| `jsdom` |    `>=22`     |
+
+### Isolation Support
+
+| Isolation mode | Node validation |
+| -------------- | :-------------: |
+| `none`         |       ✅        |
+| `process`      |       ✅        |
+
+Angular cleanup is scope-aware in shared-process runs, so one concurrent test's teardown does not reset sibling fixtures.
+
+### Multi-Major Suite
+
+Use this suite to verify Angular major compatibility locally:
+
+```bash
+npm run test:multi-major
+```
+
+It executes the full adapter tests four times, pinning Angular 18, 19, 20, and 21 package sets in sequence.
 
 ### Runtime × DOM Adapter
 
