@@ -31,6 +31,7 @@
   },
   "scripts": {
     "test": "node --import=tsx run.test.ts",
+    "test:pack": "node ./tools/publish-smoke.mjs",
     "test:happy": "cross-env POKU_ANGULAR_TEST_DOM=happy-dom node --import=tsx ./node_modules/poku/lib/bin/index.js tests --showLogs",
     "test:happy:none": "cross-env POKU_ANGULAR_TEST_DOM=happy-dom node --import=tsx ./node_modules/poku/lib/bin/index.js tests --showLogs --isolation=none",
     "test:happy:process": "cross-env POKU_ANGULAR_TEST_DOM=happy-dom node --import=tsx ./node_modules/poku/lib/bin/index.js tests --showLogs --isolation=process",
@@ -44,6 +45,7 @@
     "format:check": "prettier --check .",
     "lint": "npm run typecheck",
     "check": "npm run typecheck && npm test",
+    "check:publish": "npm run test:pack",
     "prepack": "npm run build"
   },
   "keywords": [
@@ -74,11 +76,12 @@
     "@testing-library/dom": "^10.4.1"
   },
   "peerDependencies": {
-    "@angular/common": ">=18",
-    "@angular/core": ">=18",
-    "@angular/forms": ">=18",
-    "@angular/platform-browser": ">=18",
-    "@angular/platform-browser-dynamic": ">=18",
+    "@angular/common": ">=18 <20",
+    "@angular/compiler": ">=18 <20",
+    "@angular/core": ">=18 <20",
+    "@angular/forms": ">=18 <20",
+    "@angular/platform-browser": ">=18 <20",
+    "@angular/platform-browser-dynamic": ">=18 <20",
     "happy-dom": ">=20",
     "jsdom": ">=22",
     "poku": ">=4.1.0"
@@ -96,6 +99,7 @@
   },
   "devDependencies": {
     "@angular/common": "^19.0.0",
+    "@angular/compiler": "^19.0.0",
     "@angular/core": "^19.0.0",
     "@angular/forms": "^19.0.0",
     "@angular/platform-browser": "^19.0.0",

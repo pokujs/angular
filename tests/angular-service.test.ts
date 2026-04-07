@@ -49,8 +49,8 @@ await test('mocks injectable service via useValue provider override', async () =
   assert.strictEqual(incrementCalled, true);
 });
 
-await test('injects service directly via renderHook and verifies signal state', () => {
-  const { result } = renderHook(() => inject(CounterService));
+await test('injects service directly via renderHook and verifies signal state', async () => {
+  const { result } = await renderHook(() => inject(CounterService));
 
   assert.strictEqual(result.current.count(), 0);
 
@@ -59,4 +59,23 @@ await test('injects service directly via renderHook and verifies signal state', 
 
   result.current.reset();
   assert.strictEqual(result.current.count(), 0);
+});
+
+await test('concurrent renderHook calls receive independent providedIn:root service instances', async () => {
+  // Each renderHook call creates its own isolated application, so
+  // providedIn: 'root' services are not shared between them.
+  const [first, second] = await Promise.all([
+    renderHook(() => inject(CounterService)),
+    renderHook(() => inject(CounterService)),
+  ]);
+
+  first.result.current.increment();
+  first.result.current.increment();
+
+  // Mutation in `first` must not leak into `second`.
+  assert.strictEqual(first.result.current.count(), 2);
+  assert.strictEqual(second.result.current.count(), 0);
+
+  first.unmount();
+  second.unmount();
 });
