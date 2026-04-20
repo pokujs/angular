@@ -17,7 +17,7 @@ Enjoying **Poku**? [Give him a star to show your support](https://github.com/wel
 
 > [!TIP]
 >
-> Render standalone Angular components in isolated test files — automatic TypeScript loader injection, DOM environment setup, Angular TestBed configuration, and optional render metrics included.
+> Render standalone Angular components in isolated test files — automatic TypeScript loader injection, DOM environment setup, isolated Angular runtime applications, and optional render metrics included.
 
 ---
 
@@ -26,8 +26,20 @@ Enjoying **Poku**? [Give him a star to show your support](https://github.com/wel
 ### Install
 
 ```bash
-npm i -D @pokujs/angular
+npm i -D poku @pokujs/angular
 ```
+
+This package is intended for Angular workspaces that already depend on Angular.
+Supported Angular majors are `18.x`, `19.x`, `20.x`, and `21.x`.
+
+Required Angular peers:
+
+- `@angular/common`
+- `@angular/compiler`
+- `@angular/core`
+- `@angular/platform-browser`
+- `@angular/platform-browser-dynamic`
+- `@angular/forms` when testing forms APIs
 
 Install a DOM adapter (at least one is required):
 
@@ -96,13 +108,48 @@ await test('increments the counter', async () => {
 });
 ```
 
-> [!IMPORTANT]
->
-> Because Angular's `TestBed` module state is global, use `await test(...)` (not bare `test(...)`) within each test file to ensure tests execute **sequentially**. Concurrent test execution will cause `configureTestingModule()` to reset a sibling test's fixture mid-run.
-
 ---
 
 ## Compatibility
+
+### Angular Support
+
+| Angular | Status |
+| ------- | :----: |
+| `18.x`  |   ✅   |
+| `19.x`  |   ✅   |
+| `20.x`  |   ✅   |
+| `21.x`  |   ✅   |
+
+Signal-input rerender support relies on Angular's current JIT signal internals,
+and this package verifies current support through Angular 21.
+
+### Poku And DOM Support
+
+| Package | Supported range |
+| ------- | :-------------: |
+| `poku` |   `>=4.1.0`    |
+| `happy-dom` |    `>=20`     |
+| `jsdom` |    `>=22`     |
+
+### Isolation Support
+
+| Isolation mode | Node validation |
+| -------------- | :-------------: |
+| `none`         |       ✅        |
+| `process`      |       ✅        |
+
+Angular cleanup is scope-aware in shared-process runs, so one concurrent test's teardown does not reset sibling fixtures.
+
+### Multi-Major Suite
+
+Use this suite to verify Angular major compatibility locally:
+
+```bash
+npm run test:multi-major
+```
+
+It executes the full adapter tests four times, pinning Angular 18, 19, 20, and 21 package sets in sequence.
 
 ### Runtime × DOM Adapter
 
@@ -117,7 +164,11 @@ await test('increments the counter', async () => {
 
 ### `render(component, options?)`
 
-Mounts a standalone Angular component into a fresh `TestBed` module and returns [Testing Library](https://testing-library.com/docs/dom-testing-library/api-queries) queries together with Angular-specific helpers.
+Mounts a standalone Angular component into an isolated Angular runtime application and returns [Testing Library](https://testing-library.com/docs/dom-testing-library/api-queries) queries together with Angular-specific helpers.
+
+`render()` is designed for standalone components. If your test target still
+depends on NgModule-declared components, import the relevant module graph via
+`options.imports`.
 
 ```ts
 const view = await render(MyComponent, {
@@ -138,15 +189,19 @@ view.getByRole('heading');
 await view.detectChanges();         // run a CD cycle
 await view.rerender({ title: 'Hi' }); // update inputs
 view.unmount();                     // destroy fixture
-view.fixture;                       // raw ComponentFixture
+view.fixture;                       // runtime fixture wrapper with componentRef/CD helpers
 ```
 
 ### `renderHook(fn, options?)`
 
-Runs a factory function inside Angular's injection context so it can call `inject()` and use signals.
+Runs a factory function inside an isolated Angular application injector so it can call `inject()` and use signals.
+
+Each `rerender()` call tears down the previous injector-scoped execution before
+promoting the new one, so `DestroyRef` cleanups and injector-bound effects do
+not accumulate across renders.
 
 ```ts
-const { result, rerender, unmount } = renderHook(
+const { result, rerender, unmount } = await renderHook(
   () => inject(CounterService)
 );
 
@@ -156,7 +211,10 @@ assert.strictEqual(result.current.count(), 1);
 
 ### `cleanup()`
 
-Destroys all mounted fixtures and resets `TestBed`. Call in `afterEach`.
+Destroys all mounted Angular runtime handles for the current test scope. Call in `afterEach`.
+
+If Angular teardown code throws, `cleanup()` rejects with that failure instead
+of hiding it, while still attempting to clean the remaining mounted fixtures.
 
 ```ts
 afterEach(cleanup);
@@ -169,6 +227,9 @@ Lazy proxy over `@testing-library/dom`'s `screen` — safe across test isolation
 ### `fireEvent`
 
 Async wrapper around `@testing-library/dom`'s `fireEvent` — automatically triggers Angular change detection after every event.
+
+If the event causes Angular change detection to throw, the returned promise
+rejects with the application error.
 
 ```ts
 await fireEvent.click(button);

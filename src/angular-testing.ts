@@ -1,138 +1,412 @@
-import type { BoundFunctions, Screen } from '@testing-library/dom';
-import type { ComponentFixture } from '@angular/core/testing';
-import type { EnvironmentProviders, Provider, Type } from '@angular/core';
-import { getQueriesForElement, queries } from '@testing-library/dom';
-import * as domTestingLibrary from '@testing-library/dom';
-import { TestBed } from '@angular/core/testing';
-import { provideExperimentalZonelessChangeDetection } from '@angular/core';
+import type { BoundFunctions, Screen } from "@testing-library/dom";
+import type {
+  ApplicationRef,
+  ChangeDetectorRef,
+  ComponentRef,
+  DebugElement,
+  ElementRef,
+  EnvironmentInjector,
+  Provider,
+  Type,
+} from "@angular/core";
+import type { EnvironmentProviders } from "@angular/core";
+import { getQueriesForElement, queries } from "@testing-library/dom";
+import * as domTestingLibrary from "@testing-library/dom";
+import * as pokuDom from "@pokujs/dom";
+import {
+  VERSION,
+  createComponent,
+  createEnvironmentInjector,
+  getDebugNode,
+  importProvidersFrom,
+  runInInjectionContext,
+} from "@angular/core";
 import {
   createRenderMetricsEmitter,
   createScreen,
   getNow,
   wrapFireEventMethods,
-} from '@pokujs/dom';
-import { parseRuntimeOptions } from './runtime-options.ts';
+} from "@pokujs/dom";
+import { createApplication } from "@angular/platform-browser";
+import { parseRuntimeOptions } from "./runtime-options.ts";
+import { provideCompatibleZonelessChangeDetection } from "./zoneless-change-detection.ts";
 
 const runtimeOptions = parseRuntimeOptions();
 const metrics = createRenderMetricsEmitter({
   runtimeOptions,
-  metricsStateKey: Symbol.for('@pokujs/angular.metrics-runtime-state'),
-  metricsBatchMessageType: 'POKU_ANGULAR_RENDER_METRIC_BATCH',
+  metricsStateKey: Symbol.for("@pokujs/angular.metrics-runtime-state"),
+  metricsBatchMessageType: "POKU_ANGULAR_RENDER_METRIC_BATCH",
 });
 
-// Track all live fixtures so cleanup() and fireEvent can operate on them.
-const mountedFixtures = new Set<ComponentFixture<unknown>>();
-
-// ---------------------------------------------------------------------------
-// Signal-input detection + application
-//
-// Angular's JIT compiler does not register signal inputs (input() / input.required())
-// in ɵcmp.inputs because it lacks the source-level analysis that Angular AOT performs.
-// ComponentRef.setInput() therefore silently fails (NG0303) in this environment.
-//
-// We work around this by directly applying values to the underlying ReactiveNode
-// via the same `applyValueToInputSignal` function that Angular's own change detection
-// uses internally.  The detection key is `applyValueToInputSignal` existing on the
-// node's prototype, which is unique to InputSignalNode (not present on WritableSignal).
-// ---------------------------------------------------------------------------
-
-const SIGNAL_SYMBOL_STR = 'Symbol(SIGNAL)';
-
-const getSignalNode = (value: unknown): Record<string, unknown> | null => {
-  if (typeof value !== 'function') return null;
-  const sym = Object.getOwnPropertySymbols(value).find(
-    (s) => s.toString() === SIGNAL_SYMBOL_STR
-  );
-  return sym ? (value as Record<symbol, unknown>)[sym] as Record<string, unknown> : null;
+type ScopeSlot<T> = {
+  readonly value: T;
 };
 
-const applyInputValue = (
+type ScopeLike = {
+  getOrCreateSlot<T>(key: symbol, init: () => T): ScopeSlot<T>;
+  getSlot?<T>(key: symbol): ScopeSlot<T> | undefined;
+  addCleanup?(fn: () => void | Promise<void>): void;
+};
+
+type DomScopeApi = {
+  defineSlotKey?: <T>(name: string) => symbol;
+  getOrCreateScope?: () => ScopeLike | undefined;
+  getCurrentScope?: () => ScopeLike | undefined;
+};
+
+type MountedHandle = {
+  destroy(): void;
+  detectChanges?(): Promise<void>;
+};
+
+type RenderMountedHandle = MountedHandle & {
+  detectChanges(): Promise<void>;
+};
+
+type RenderHookExecution<Result> = {
+  injector: EnvironmentInjector;
+  result: Result;
+  destroyed: boolean;
+};
+
+type ScopedRuntimeState = {
+  mountedHandles: Set<MountedHandle>;
+  cleanupRegistered: boolean;
+};
+
+export type AngularFixture<T> = {
+  componentRef: ComponentRef<T>;
+  componentInstance: T;
+  nativeElement: HTMLElement;
+  elementRef: ElementRef;
+  changeDetectorRef: ChangeDetectorRef;
+  debugElement: DebugElement | null;
+  detectChanges(checkNoChanges?: boolean): void;
+  checkNoChanges(): void;
+  isStable(): boolean;
+  whenStable(): Promise<void>;
+  whenRenderingDone(): Promise<void>;
+  destroy(): void;
+};
+
+type RenderFixture<T> = AngularFixture<T>;
+
+const domScopeApi = pokuDom as unknown as DomScopeApi;
+
+const RUNTIME_STATE_SLOT_KEY =
+  typeof domScopeApi.defineSlotKey === "function"
+    ? domScopeApi.defineSlotKey<ScopedRuntimeState>(
+        "@pokujs/angular.runtime-state",
+      )
+    : undefined;
+
+const fallbackMountedHandles = new Set<MountedHandle>();
+
+const supportedAngularMajorRange = {
+  min: 18,
+  max: 21,
+} as const;
+
+const currentAngularMajor = Number.parseInt(VERSION.major, 10);
+
+const canUseSignalInputFallback =
+  Number.isFinite(currentAngularMajor) &&
+  currentAngularMajor >= supportedAngularMajorRange.min &&
+  currentAngularMajor <= supportedAngularMajorRange.max;
+
+const throwCollectedErrors = (errors: unknown[], message: string) => {
+  if (errors.length === 0) return;
+  if (errors.length === 1) {
+    throw errors[0];
+  }
+
+  throw new AggregateError(errors, message);
+};
+
+const runCleanupSteps = (steps: Array<() => void>, errorMessage: string) => {
+  const errors: unknown[] = [];
+
+  for (const step of steps) {
+    try {
+      step();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  throwCollectedErrors(errors, errorMessage);
+};
+
+const destroyMountedHandles = (mountedHandles: Set<MountedHandle>) => {
+  const errors: unknown[] = [];
+
+  for (const handle of [...mountedHandles]) {
+    try {
+      handle.destroy();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
+  throwCollectedErrors(
+    errors,
+    "@pokujs/angular: cleanup failed while destroying mounted handles.",
+  );
+};
+
+const getScopedRuntimeState = (): ScopedRuntimeState | undefined => {
+  if (!RUNTIME_STATE_SLOT_KEY) return undefined;
+  if (typeof domScopeApi.getOrCreateScope !== "function") return undefined;
+
+  const scope = domScopeApi.getOrCreateScope();
+  if (!scope) return undefined;
+
+  const state = scope.getOrCreateSlot(RUNTIME_STATE_SLOT_KEY, () => ({
+    mountedHandles: new Set<MountedHandle>(),
+    cleanupRegistered: false,
+  })).value;
+
+  if (!state.cleanupRegistered && typeof scope.addCleanup === "function") {
+    state.cleanupRegistered = true;
+    scope.addCleanup(() => {
+      try {
+        destroyMountedHandles(state.mountedHandles);
+      } finally {
+        metrics.flushMetricBuffer();
+      }
+    });
+  }
+
+  return state;
+};
+
+const getCurrentScopedRuntimeState = (): ScopedRuntimeState | undefined => {
+  if (!RUNTIME_STATE_SLOT_KEY) return undefined;
+  if (typeof domScopeApi.getCurrentScope !== "function") return undefined;
+
+  const scope = domScopeApi.getCurrentScope();
+  const slot = scope?.getSlot?.<ScopedRuntimeState>(RUNTIME_STATE_SLOT_KEY);
+  return slot?.value;
+};
+
+const getMountedHandles = (): Set<MountedHandle> =>
+  getScopedRuntimeState()?.mountedHandles ?? fallbackMountedHandles;
+
+const getCurrentMountedHandles = (): Set<MountedHandle> =>
+  getCurrentScopedRuntimeState()?.mountedHandles ?? fallbackMountedHandles;
+
+/**
+ * Attempt to set an Angular signal input directly via the signal node's own
+ * internal setter.  This is required in JIT-compiled test environments where
+ * Angular's JIT compiler does not register signal inputs (`input()`) in the
+ * component def's `inputs` map, causing `ComponentRef.setInput()` to log
+ * NG0303 and return without updating the signal.
+ *
+ * Detection: locate the canonical `'SIGNAL'` symbol on the instance property
+ * via `Symbol.prototype.description` (ES2019+) and verify the node exposes
+ * `applyValueToInputSignal`.  The `'SIGNAL'` description is Angular's
+ * foundational reactive primitive — the same one that drives every template
+ * binding — so it is maximally stable.
+ *
+ * Returns `true` if the value was applied, `false` if the property is not a
+ * recognised signal input (caller should fall back to `ComponentRef.setInput`).
+ */
+const trySetSignalInput = (
   instance: Record<string, unknown>,
   key: string,
-  value: unknown
-): void => {
-  const node = getSignalNode(instance[key]);
-  if (!node) return;
+  value: unknown,
+): boolean => {
+  if (!canUseSignalInputFallback) return false;
 
-  // InputSignalNode has `applyValueToInputSignal`; WritableSignalNode does not.
-  const applyFn = node['applyValueToInputSignal'] as
-    | ((n: Record<string, unknown>, v: unknown) => void)
-    | undefined;
+  const prop = instance[key];
+  if (typeof prop !== "function") return false;
 
-  if (typeof applyFn === 'function') {
-    applyFn(node, value);
-  }
+  const signalSym = Object.getOwnPropertySymbols(prop).find(
+    (s) => s.description === "SIGNAL",
+  );
+  if (!signalSym) return false;
+
+  const node = (prop as unknown as Record<symbol, unknown>)[
+    signalSym
+  ] as Record<string, unknown>;
+  if (node === null || typeof node !== "object") return false;
+
+  const applyFn = node["applyValueToInputSignal"];
+  if (typeof applyFn !== "function") return false;
+
+  (applyFn as (n: unknown, v: unknown) => void)(node, value);
+  return true;
 };
 
 const applyInputs = (
-  fixture: ComponentFixture<unknown>,
-  inputs: Record<string, unknown>
+  componentRef: ComponentRef<unknown>,
+  inputs: Record<string, unknown>,
 ): void => {
-  const instance = fixture.componentInstance as unknown as Record<string, unknown>;
+  const instance = componentRef.instance as Record<string, unknown>;
   for (const [key, value] of Object.entries(inputs)) {
-    applyInputValue(instance, key, value);
+    // Probe for a signal input first.  In JIT mode, `ComponentRef.setInput()`
+    // silently no-ops for `input()` signal properties (logging NG0303 to the
+    // console) because the JIT compiler does not add them to the component
+    // def's inputs map.  The signal-node path bypasses that limitation while
+    // the public API handles all traditional `@Input()` decorators.
+    if (!trySetSignalInput(instance, key, value)) {
+      componentRef.setInput(key, value);
+    }
   }
 };
 
-// ---------------------------------------------------------------------------
-// Flush Angular change detection across all live fixtures.
-// Called automatically after every fireEvent so signal-driven template
-// updates reach the DOM without requiring explicit detectChanges() calls.
-// ---------------------------------------------------------------------------
+const buildEnvironmentProviders = (
+  optionsProviders: Array<Provider | EnvironmentProviders> | undefined,
+  imports: Array<Type<unknown>> | undefined,
+): Array<Provider | EnvironmentProviders> => {
+  const providers: Array<Provider | EnvironmentProviders> = [
+    provideCompatibleZonelessChangeDetection(),
+  ];
+
+  if (imports && imports.length > 0) {
+    providers.push(importProvidersFrom(...imports));
+  }
+
+  if (optionsProviders && optionsProviders.length > 0) {
+    providers.push(...optionsProviders);
+  }
+
+  return providers;
+};
+
+const createIsolatedApplication = async (
+  optionsProviders?: Array<Provider | EnvironmentProviders>,
+  imports?: Array<Type<unknown>>,
+) =>
+  await createApplication({
+    providers: buildEnvironmentProviders(optionsProviders, imports),
+  });
+
+const waitForFixtureStability = async (fixture: RenderFixture<unknown>) => {
+  await fixture.whenStable();
+};
+
+const createFixture = <T>(
+  componentRef: ComponentRef<T>,
+  applicationRef: ApplicationRef,
+  onDestroy: () => void,
+): RenderFixture<T> => {
+  let destroyed = false;
+  let stable = false;
+
+  const stabilitySubscription = applicationRef.isStable.subscribe((isStable) => {
+    stable = isStable;
+  });
+
+  const waitForStability = async () => {
+    await applicationRef.whenStable();
+    await Promise.resolve();
+  };
+
+  return {
+    componentRef,
+    componentInstance: componentRef.instance,
+    nativeElement: componentRef.location.nativeElement as HTMLElement,
+    elementRef: componentRef.location,
+    changeDetectorRef: componentRef.changeDetectorRef,
+    get debugElement() {
+      return (
+        (getDebugNode(
+          componentRef.location.nativeElement,
+        ) as DebugElement | null) ?? null
+      );
+    },
+    detectChanges(checkNoChanges = false) {
+      componentRef.changeDetectorRef.detectChanges();
+      if (checkNoChanges) {
+        componentRef.changeDetectorRef.checkNoChanges();
+      }
+    },
+    checkNoChanges() {
+      componentRef.changeDetectorRef.checkNoChanges();
+    },
+    isStable() {
+      return !destroyed && stable;
+    },
+    whenStable() {
+      return waitForStability();
+    },
+    whenRenderingDone() {
+      return waitForStability();
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      stabilitySubscription.unsubscribe();
+      onDestroy();
+    },
+  };
+};
+
 const flushAllFixtures = async () => {
   await Promise.resolve();
-  for (const fixture of mountedFixtures) {
+  const mountedHandles = [...getCurrentMountedHandles()];
+
+  for (const handle of mountedHandles) {
     try {
-      fixture.detectChanges();
-    } catch {
-      // Fixture may have been destroyed between the event and the flush.
+      await handle.detectChanges?.();
+    } catch (error) {
+      if (!getCurrentMountedHandles().has(handle)) {
+        continue;
+      }
+
+      throw error;
     }
   }
   await Promise.resolve();
 };
 
-// ---------------------------------------------------------------------------
-// Public API types
-// ---------------------------------------------------------------------------
+const createRenderHookExecution = <Result, Props>(
+  runtimeApplication: ApplicationRef,
+  hookFn: (props: Props) => Result,
+  props: Props,
+): RenderHookExecution<Result> => {
+  const injector = createEnvironmentInjector(
+    [],
+    runtimeApplication.injector,
+    "@pokujs/angular.renderHook",
+  );
 
-export type RenderOptions<T = unknown> = {
-  /** Additional Angular providers for the test module. */
+  try {
+    return {
+      injector,
+      result: runInInjectionContext(injector, () => hookFn(props)),
+      destroyed: false,
+    };
+  } catch (error) {
+    injector.destroy();
+    throw error;
+  }
+};
+
+const destroyRenderHookExecution = (execution: RenderHookExecution<unknown>) => {
+  if (execution.destroyed) return;
+
+  try {
+    execution.injector.destroy();
+  } finally {
+    execution.destroyed = true;
+  }
+};
+
+export type RenderOptions = {
   providers?: Array<Provider | EnvironmentProviders>;
-  /**
-   * Additional standalone components, directives, pipes, or NgModules to
-   * import into the test module (e.g. shared modules).
-   */
   imports?: Array<Type<unknown>>;
-  /**
-   * Initial values for the component's signal inputs (`input()` / `input.required()`).
-   * Applied before the first change-detection cycle so required inputs are satisfied.
-   */
   inputs?: Record<string, unknown>;
-  /**
-   * Set to `false` to skip the automatic `detectChanges()` + `whenStable()`
-   * call after mounting — useful when you need manual control before first render.
-   */
   detectChanges?: boolean;
 };
 
 export type RenderResult<T = unknown> = BoundFunctions<typeof queries> & {
-  /** The component's host element, appended to `document.body`. */
   container: HTMLElement;
-  /** Always `document.body`; Testing Library queries are scoped here. */
   baseElement: HTMLElement;
-  /** The underlying Angular `ComponentFixture` for framework-level assertions. */
-  fixture: ComponentFixture<T>;
-  /**
-   * Trigger a synchronous change-detection cycle and wait for any pending
-   * async work (e.g. resolved promises inside `ngOnInit`).
-   */
+  fixture: AngularFixture<T>;
   detectChanges: () => Promise<void>;
-  /** Destroy the component and remove it from the DOM. */
   unmount: () => void;
-  /**
-   * Apply new signal-input values, trigger change detection, and wait for
-   * stability — equivalent to a parent updating bound `@Input()` values.
-   */
   rerender: (inputs?: Record<string, unknown>) => Promise<void>;
 };
 
@@ -149,82 +423,98 @@ export type RenderHookResult<Result, Props = unknown> = {
   unmount: () => void;
 };
 
-// ---------------------------------------------------------------------------
-// render()
-// ---------------------------------------------------------------------------
-
-/**
- * Mount a standalone Angular component into a fresh TestBed module and return
- * a Testing Library query surface together with Angular-specific helpers.
- *
- * Call `afterEach(cleanup)` to reset the TestBed between tests.  Only one
- * component should be actively managed per test.
- *
- * @example
- * ```typescript
- * import { afterEach, assert, test } from 'poku';
- * import { cleanup, fireEvent, render, screen } from '@pokujs/angular';
- * import { CounterButton } from './CounterButton.ts';
- *
- * afterEach(cleanup);
- *
- * test('increments the counter', async () => {
- *   await render(CounterButton, { inputs: { initialCount: 1 } });
- *   await fireEvent.click(screen.getByRole('button', { name: 'Increment' }));
- *   assert.strictEqual(screen.getByRole('heading').textContent, 'Count: 2');
- * });
- * ```
- */
 export const render = async <T>(
   component: Type<T>,
-  options: RenderOptions<T> = {}
+  options: RenderOptions = {},
 ): Promise<RenderResult<T>> => {
-  await TestBed.configureTestingModule({
-    imports: [component, ...(options.imports ?? [])],
-    providers: [
-      provideExperimentalZonelessChangeDetection(),
-      ...(options.providers ?? []),
-    ],
-  }).compileComponents();
+  const startedAt = getNow();
+  const runtimeApplication = await createIsolatedApplication(
+    options.providers,
+    options.imports,
+  );
+  const mountedHandles = getMountedHandles();
 
-  const fixture = TestBed.createComponent(component);
-  mountedFixtures.add(fixture as ComponentFixture<unknown>);
+  const baseElement = document.body;
+  const container = document.createElement("div");
+  baseElement.appendChild(container);
 
-  // Apply signal inputs BEFORE the first change-detection cycle so that
-  // required inputs (input.required()) are satisfied when renderning begins.
+  const componentRef = createComponent(component, {
+    environmentInjector: runtimeApplication.injector,
+    hostElement: container,
+  });
+  runtimeApplication.attachView(componentRef.hostView);
+
+  const teardown = () => {
+    runCleanupSteps(
+      [
+        () => {
+          if (!runtimeApplication.destroyed && !componentRef.hostView.destroyed) {
+            runtimeApplication.detachView(componentRef.hostView);
+          }
+        },
+        () => {
+          if (!componentRef.hostView.destroyed) {
+            componentRef.destroy();
+          }
+        },
+        () => {
+          if (!runtimeApplication.destroyed) {
+            runtimeApplication.destroy();
+          }
+        },
+        () => {
+          if (container.parentNode) {
+            container.parentNode.removeChild(container);
+          }
+        },
+      ],
+      "@pokujs/angular: cleanup failed while destroying a rendered component.",
+    );
+  };
+
+  const fixture = createFixture(componentRef, runtimeApplication, teardown);
+
+  const handle: RenderMountedHandle = {
+    destroy() {
+      if (!mountedHandles.has(handle)) return;
+      try {
+        fixture.destroy();
+      } finally {
+        mountedHandles.delete(handle);
+      }
+    },
+    async detectChanges() {
+      fixture.detectChanges();
+      await waitForFixtureStability(fixture as RenderFixture<unknown>);
+    },
+  };
+
+  mountedHandles.add(handle);
+
   if (options.inputs) {
-    applyInputs(fixture as ComponentFixture<unknown>, options.inputs);
+    applyInputs(componentRef as ComponentRef<unknown>, options.inputs);
   }
 
   if (options.detectChanges !== false) {
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await handle.detectChanges();
   }
 
-  const componentName = component.name ?? 'AnonymousComponent';
-  const startedAt = getNow();
+  const componentName = component.name ?? "AnonymousComponent";
   metrics.emitRenderMetric(componentName, getNow() - startedAt);
 
-  const baseElement = document.body;
-  const container = fixture.nativeElement as HTMLElement;
-
   const detectChanges = async () => {
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await handle.detectChanges();
   };
 
   const unmount = () => {
-    if (!mountedFixtures.has(fixture as ComponentFixture<unknown>)) return;
-    fixture.destroy();
-    mountedFixtures.delete(fixture as ComponentFixture<unknown>);
+    handle.destroy();
   };
 
   const rerender = async (inputs?: Record<string, unknown>) => {
     if (inputs) {
-      applyInputs(fixture as ComponentFixture<unknown>, inputs);
+      applyInputs(componentRef as ComponentRef<unknown>, inputs);
     }
-    fixture.detectChanges();
-    await fixture.whenStable();
+    await handle.detectChanges();
   };
 
   return {
@@ -238,91 +528,114 @@ export const render = async <T>(
   };
 };
 
-// ---------------------------------------------------------------------------
-// renderHook()
-// ---------------------------------------------------------------------------
-
-/**
- * Run a factory function inside Angular's injection context so it can call
- * `inject()` and use signals.  Mirrors the React/Vue `renderHook` API.
- *
- * @example
- * ```typescript
- * import { inject } from '@angular/core';
- * import { renderHook, cleanup } from '@pokujs/angular';
- * import { CounterService } from './CounterService.ts';
- *
- * afterEach(cleanup);
- *
- * test('service increments its signal counter', () => {
- *   const { result } = renderHook(() => inject(CounterService));
- *   assert.strictEqual(result.current.count(), 0);
- *   result.current.increment();
- *   assert.strictEqual(result.current.count(), 1);
- * });
- * ```
- */
-export const renderHook = <Result, Props = Record<string, unknown>>(
+export const renderHook = async <Result, Props = Record<string, unknown>>(
   hookFn: (props: Props) => Result,
-  options: RenderHookOptions<Props> = {}
-): RenderHookResult<Result, Props> => {
-  TestBed.configureTestingModule({
-    providers: [
-      provideExperimentalZonelessChangeDetection(),
-      ...(options.providers ?? []),
-    ],
-  });
+  options: RenderHookOptions<Props> = {},
+): Promise<RenderHookResult<Result, Props>> => {
+  const runtimeApplication = await createIsolatedApplication(options.providers);
+  const mountedHandles = getMountedHandles();
 
   const initialProps = (options.initialProps ?? {}) as Props;
   let currentProps = initialProps;
-  let currentResult: Result = TestBed.runInInjectionContext(() =>
-    hookFn(currentProps)
+  let currentExecution = createRenderHookExecution(
+    runtimeApplication,
+    hookFn,
+    currentProps,
   );
+  let currentResult = currentExecution.result;
+  let unmounted = false;
+
+  // A stable container whose `current` property always reflects the latest
+  // result.  Destructuring `const { result } = await renderHook(...)` must
+  // still see updated values after `rerender()` — using a live getter here
+  // ensures that `result.current` is not a stale snapshot.
+  const resultRef: { current: Result } = {
+    get current() {
+      return currentResult;
+    },
+  } as { current: Result };
+
+  const handle: MountedHandle = {
+    destroy() {
+      if (!mountedHandles.has(handle)) return;
+      unmounted = true;
+
+      try {
+        runCleanupSteps(
+          [
+            () => {
+              destroyRenderHookExecution(
+                currentExecution as RenderHookExecution<unknown>,
+              );
+            },
+            () => {
+              runtimeApplication.destroy();
+            },
+          ],
+          "@pokujs/angular: cleanup failed while destroying a rendered hook.",
+        );
+      } finally {
+        mountedHandles.delete(handle);
+      }
+    },
+  };
+
+  mountedHandles.add(handle);
 
   return {
     get result() {
-      return { current: currentResult };
+      return resultRef;
     },
     rerender(nextProps = currentProps) {
+      if (unmounted) {
+        throw new Error(
+          "@pokujs/angular: cannot call rerender() after the hook has been unmounted.",
+        );
+      }
+      const nextExecution = createRenderHookExecution(
+        runtimeApplication,
+        hookFn,
+        nextProps,
+      );
+
+      try {
+        destroyRenderHookExecution(
+          currentExecution as RenderHookExecution<unknown>,
+        );
+      } catch (destroyError) {
+        try {
+          destroyRenderHookExecution(
+            nextExecution as RenderHookExecution<unknown>,
+          );
+        } catch (rollbackError) {
+          throwCollectedErrors(
+            [destroyError, rollbackError],
+            "@pokujs/angular: renderHook rerender failed while rolling back the previous hook execution.",
+          );
+        }
+
+        throw destroyError;
+      }
+
       currentProps = nextProps;
-      currentResult = TestBed.runInInjectionContext(() => hookFn(currentProps));
+      currentExecution = nextExecution;
+      currentResult = nextExecution.result;
     },
     unmount() {
-      TestBed.resetTestingModule();
+      handle.destroy();
     },
   };
 };
 
-// ---------------------------------------------------------------------------
-// cleanup()
-// ---------------------------------------------------------------------------
-
-/**
- * Destroy all mounted fixtures, reset the TestBed module, and flush any
- * buffered render metrics.  Call this in `afterEach` to keep tests isolated.
- */
 export const cleanup = async () => {
-  for (const fixture of [...mountedFixtures]) {
-    try {
-      fixture.destroy();
-    } catch {
-      // Ignore errors from already-destroyed fixtures.
-    }
+  try {
+    destroyMountedHandles(getCurrentMountedHandles());
+  } finally {
+    metrics.flushMetricBuffer();
   }
-  mountedFixtures.clear();
-  TestBed.resetTestingModule();
-  metrics.flushMetricBuffer();
 };
 
-// ---------------------------------------------------------------------------
-// screen  (lazy proxy — safe across test isolation boundaries)
-// ---------------------------------------------------------------------------
-
 export const screen = createScreen() as Screen;
-
-// ---------------------------------------------------------------------------
-// fireEvent  (async wrapper — triggers Angular CD after each event)
-// ---------------------------------------------------------------------------
 
 const baseFireEventInstance = domTestingLibrary.fireEvent;
 
@@ -351,8 +664,7 @@ wrapFireEventMethods(
     const result = invoke();
     await flushAllFixtures();
     return result;
-  }
+  },
 );
 
 export const fireEvent = wrappedFireEvent;
-
