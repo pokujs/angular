@@ -20,8 +20,8 @@ const resolveSetupModulePath = (baseName: string) => {
 const happyDomSetupPath = resolveSetupModulePath('dom-setup-happy');
 const jsdomSetupPath = resolveSetupModulePath('dom-setup-jsdom');
 
-// Angular components and tests exclusively use .ts files.
-const angularExtensions = new Set(['.ts']);
+// Angular components and tests use .ts files. Inline templates may use .html.
+const angularExtensions = new Set(['.ts', '.html']);
 
 export const resolveDomSetupPath = createDomSetupPathResolver(
   '@pokujs/angular',
