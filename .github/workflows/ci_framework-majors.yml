@@ -49,15 +49,5 @@ jobs:
       - name: 📦 Installing Dependencies
         run: npm ci
 
-      - name: 🔁 Pin Angular ${{ matrix.angular-major }}
-        run: |
-          npm install --no-save \
-            @angular/common@${{ matrix.angular-major }} \
-            @angular/compiler@${{ matrix.angular-major }} \
-            @angular/core@${{ matrix.angular-major }} \
-            @angular/forms@${{ matrix.angular-major }} \
-            @angular/platform-browser@${{ matrix.angular-major }} \
-            @angular/platform-browser-dynamic@${{ matrix.angular-major }}
-
       - name: 🔬 Angular ${{ matrix.angular-major }}
-        run: npm test
+        run: npm run test:major:${{ matrix.angular-major }}
