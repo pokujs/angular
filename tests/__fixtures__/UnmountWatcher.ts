@@ -1,4 +1,4 @@
-import { Component, input, OnDestroy } from '@angular/core';
+import { Component, input, OnDestroy } from "@angular/core";
 
 /**
  * Component that fires an optional callback when destroyed.
@@ -6,7 +6,7 @@ import { Component, input, OnDestroy } from '@angular/core';
  */
 @Component({
   standalone: true,
-  selector: 'app-unmount-watcher',
+  selector: "app-unmount-watcher",
   template: `<span>Mounted</span>`,
 })
 export class UnmountWatcher implements OnDestroy {

@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { signal } from "@angular/core";
 
 /**
  * Signal-based toggle composable — the Angular equivalent of Vue's

@@ -69,13 +69,13 @@ npm i -D jsdom
 
 ```js
 // poku.config.js
-import { defineConfig } from 'poku';
-import { angularTestingPlugin } from '@pokujs/angular/plugin';
+import { defineConfig } from "poku";
+import { angularTestingPlugin } from "@pokujs/angular/plugin";
 
 export default defineConfig({
   plugins: [
     angularTestingPlugin({
-      dom: 'happy-dom',
+      dom: "happy-dom",
     }),
   ],
 });
@@ -85,26 +85,20 @@ export default defineConfig({
 
 ```ts
 // tests/counter.test.ts
-import { afterEach, assert, test } from 'poku';
-import { cleanup, fireEvent, render, screen } from '@pokujs/angular';
-import { CounterButton } from './CounterButton.ts';
+import { afterEach, assert, test } from "poku";
+import { cleanup, fireEvent, render, screen } from "@pokujs/angular";
+import { CounterButton } from "./CounterButton.ts";
 
 afterEach(cleanup);
 
-await test('increments the counter', async () => {
+await test("increments the counter", async () => {
   await render(CounterButton, { inputs: { initialCount: 1 } });
 
-  assert.strictEqual(
-    screen.getByRole('heading').textContent,
-    'Count: 1'
-  );
+  assert.strictEqual(screen.getByRole("heading").textContent, "Count: 1");
 
-  await fireEvent.click(screen.getByRole('button', { name: 'Increment' }));
+  await fireEvent.click(screen.getByRole("button", { name: "Increment" }));
 
-  assert.strictEqual(
-    screen.getByRole('heading').textContent,
-    'Count: 2'
-  );
+  assert.strictEqual(screen.getByRole("heading").textContent, "Count: 2");
 });
 ```
 
@@ -126,11 +120,11 @@ and this package verifies current support through Angular 21.
 
 ### Poku And DOM Support
 
-| Package | Supported range |
-| ------- | :-------------: |
-| `poku` |   `>=4.1.0`    |
-| `happy-dom` |    `>=20`     |
-| `jsdom` |    `>=22`     |
+| Package     | Supported range |
+| ----------- | :-------------: |
+| `poku`      |    `>=4.1.0`    |
+| `happy-dom` |     `>=20`      |
+| `jsdom`     |     `>=22`      |
 
 ### Isolation Support
 
@@ -173,9 +167,9 @@ depends on NgModule-declared components, import the relevant module graph via
 ```ts
 const view = await render(MyComponent, {
   /** Signal inputs (input() / input.required()) */
-  inputs: { title: 'Hello' },
+  inputs: { title: "Hello" },
   /** Additional providers for the test module */
-  providers: [{ provide: TOKEN, useValue: 'value' }],
+  providers: [{ provide: TOKEN, useValue: "value" }],
   /** Additional imports (shared modules, pipes, directives) */
   imports: [SharedModule],
   /** Set false to skip the initial detectChanges() cycle */
@@ -183,13 +177,13 @@ const view = await render(MyComponent, {
 });
 
 // Testing Library queries (scoped to document.body)
-view.getByRole('heading');
+view.getByRole("heading");
 
 // Angular-specific helpers
-await view.detectChanges();         // run a CD cycle
-await view.rerender({ title: 'Hi' }); // update inputs
-view.unmount();                     // destroy fixture
-view.fixture;                       // runtime fixture wrapper with componentRef/CD helpers
+await view.detectChanges(); // run a CD cycle
+await view.rerender({ title: "Hi" }); // update inputs
+view.unmount(); // destroy fixture
+view.fixture; // runtime fixture wrapper with componentRef/CD helpers
 ```
 
 ### `renderHook(fn, options?)`
@@ -201,8 +195,8 @@ promoting the new one, so `DestroyRef` cleanups and injector-bound effects do
 not accumulate across renders.
 
 ```ts
-const { result, rerender, unmount } = await renderHook(
-  () => inject(CounterService)
+const { result, rerender, unmount } = await renderHook(() =>
+  inject(CounterService),
 );
 
 result.current.increment();
@@ -233,7 +227,7 @@ rejects with the application error.
 
 ```ts
 await fireEvent.click(button);
-await fireEvent.input(input, { target: { value: 'hello' } });
+await fireEvent.input(input, { target: { value: "hello" } });
 ```
 
 ---
@@ -248,10 +242,10 @@ angularTestingPlugin({
    * - 'jsdom'           — broader browser API coverage
    * - { setupModule }   — path to a custom DOM setup module
    */
-  dom: 'happy-dom',
+  dom: "happy-dom",
 
   /** Base URL assigned to the DOM environment. */
-  domUrl: 'http://localhost:3000/',
+  domUrl: "http://localhost:3000/",
 
   /**
    * Render metrics. Disabled by default.
@@ -273,3 +267,5 @@ angularTestingPlugin({
 ## License
 
 [MIT](./LICENSE)
+
+Render results also expose `componentInstance`, `asFragment()`, and `debug()`. Import `waitFor` from `@pokujs/angular` for assertion-aware polling.

@@ -1,4 +1,4 @@
-import { InjectionToken } from '@angular/core';
+import { InjectionToken } from "@angular/core";
 
 /**
  * InjectionToken that carries the active theme name.
@@ -11,7 +11,7 @@ import { InjectionToken } from '@angular/core';
  * });
  * ```
  */
-export const THEME_TOKEN = new InjectionToken<string>('poku.theme', {
+export const THEME_TOKEN = new InjectionToken<string>("poku.theme", {
   providedIn: null,
-  factory: () => 'light',
+  factory: () => "light",
 });

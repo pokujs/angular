@@ -3,7 +3,7 @@ import type {
   AngularMetricsSummary,
   AngularTestingPluginOptions,
   RenderMetric,
-} from './plugin-types.ts';
+} from "./plugin-types.ts";
 import {
   buildRuntimeOptionArgs as buildCoreRuntimeOptionArgs,
   createMetricsSummary,
@@ -13,11 +13,11 @@ import {
   normalizeMetricsOptions,
   printMetricsSummary as printCoreMetricsSummary,
   selectTopSlowestMetrics,
-} from '@pokujs/dom';
-import { runtimeOptionArgPrefixes } from './runtime-options.ts';
+} from "@pokujs/dom";
+import { runtimeOptionArgPrefixes } from "./runtime-options.ts";
 
-const ANGULAR_RENDER_METRIC = 'POKU_ANGULAR_RENDER_METRIC';
-const ANGULAR_RENDER_METRIC_BATCH = 'POKU_ANGULAR_RENDER_METRIC_BATCH';
+const ANGULAR_RENDER_METRIC = "POKU_ANGULAR_RENDER_METRIC";
+const ANGULAR_RENDER_METRIC_BATCH = "POKU_ANGULAR_RENDER_METRIC_BATCH";
 
 export const isRenderMetricMessage = (message: unknown) =>
   isCoreRenderMetricMessage(message, ANGULAR_RENDER_METRIC);
@@ -27,11 +27,12 @@ export const isRenderMetricBatchMessage = (message: unknown) =>
 
 export const buildRuntimeOptionArgs = (
   options: AngularTestingPluginOptions,
-  metricsOptions: NormalizedMetricsOptions
-) => buildCoreRuntimeOptionArgs(options, metricsOptions, runtimeOptionArgPrefixes);
+  metricsOptions: NormalizedMetricsOptions,
+) =>
+  buildCoreRuntimeOptionArgs(options, metricsOptions, runtimeOptionArgPrefixes);
 
 export const printMetricsSummary = (summary: AngularMetricsSummary) =>
-  printCoreMetricsSummary(summary, '@pokujs/angular');
+  printCoreMetricsSummary(summary, "@pokujs/angular");
 
 export {
   createMetricsSummary,

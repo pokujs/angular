@@ -3,16 +3,16 @@ import type {
   AngularMetricsOptions,
   AngularMetricsSummary,
   AngularTestingPluginOptions,
-} from './plugin-types.ts';
+} from "./plugin-types.ts";
 import {
   createFrameworkTestingPluginFactory,
   type FrameworkDescriptor,
-} from '@pokujs/dom';
+} from "@pokujs/dom";
 import {
   buildRunnerCommand,
   canHandleRuntime,
   resolveDomSetupPath,
-} from './plugin-command.ts';
+} from "./plugin-command.ts";
 import {
   buildRuntimeOptionArgs,
   createMetricsSummary,
@@ -21,7 +21,7 @@ import {
   isRenderMetricMessage,
   normalizeMetricsOptions,
   selectTopSlowestMetrics,
-} from './plugin-metrics.ts';
+} from "./plugin-metrics.ts";
 
 export type {
   AngularDomAdapter,
@@ -31,26 +31,27 @@ export type {
 };
 
 const descriptor: FrameworkDescriptor = {
-  pluginName: 'angular-testing',
-  packageTag: '@pokujs/angular',
-  runtimeArgBase: 'poku-angular',
-  metricMessageType: 'POKU_ANGULAR_RENDER_METRIC',
-  metricBatchMessageType: 'POKU_ANGULAR_RENDER_METRIC_BATCH',
+  pluginName: "angular-testing",
+  packageTag: "@pokujs/angular",
+  runtimeArgBase: "poku-angular",
+  metricMessageType: "POKU_ANGULAR_RENDER_METRIC",
+  metricBatchMessageType: "POKU_ANGULAR_RENDER_METRIC_BATCH",
   // Angular test files — and the component fixtures they import — are all .ts
-  testFileExtensions: ['.ts'],
+  testFileExtensions: [".ts"],
   commandBuilder: (input) => buildRunnerCommand(input),
 };
 
 const { createTestingPlugin } = createFrameworkTestingPluginFactory(
   descriptor,
-  import.meta.url
+  import.meta.url,
 );
 
 export const createAngularTestingPlugin = (
-  options: AngularTestingPluginOptions = {}
+  options: AngularTestingPluginOptions = {},
 ) => createTestingPlugin(options);
 
 export const angularTestingPlugin = createAngularTestingPlugin;
+export const angularTestPlugin = createAngularTestingPlugin;
 
 export const __internal = {
   buildRunnerCommand,

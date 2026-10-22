@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal } from "@angular/core";
 
 /**
  * Harness component that exposes a boolean toggle backed by a signal.
@@ -6,10 +6,12 @@ import { Component, signal } from '@angular/core';
  */
 @Component({
   standalone: true,
-  selector: 'app-toggle-harness',
+  selector: "app-toggle-harness",
   template: `
     <div>
-      <output aria-label="toggle-state">{{ enabled() ? 'enabled' : 'disabled' }}</output>
+      <output aria-label="toggle-state">{{
+        enabled() ? "enabled" : "disabled"
+      }}</output>
       <button type="button" (click)="toggle()">Toggle</button>
     </div>
   `,

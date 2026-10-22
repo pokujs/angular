@@ -1,5 +1,5 @@
-import { Component, inject, signal } from '@angular/core';
-import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { Component, inject, signal } from "@angular/core";
+import { ReactiveFormsModule, FormBuilder, Validators } from "@angular/forms";
 
 /**
  * Reactive login form built with Angular's `FormBuilder` and `inject()`.
@@ -9,7 +9,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 @Component({
   standalone: true,
   imports: [ReactiveFormsModule],
-  selector: 'app-login-form',
+  selector: "app-login-form",
   template: `
     <form [formGroup]="form" (ngSubmit)="submit()">
       <label for="email">Email</label>
@@ -19,7 +19,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
         formControlName="email"
         placeholder="you@example.com"
       />
-      @if (form.controls['email'].invalid && form.controls['email'].touched) {
+      @if (form.controls["email"].invalid && form.controls["email"].touched) {
         <p role="alert">Valid email is required.</p>
       }
 
@@ -31,7 +31,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
         placeholder="••••••••"
       />
       @if (
-        form.controls['password'].invalid && form.controls['password'].touched
+        form.controls["password"].invalid && form.controls["password"].touched
       ) {
         <p role="alert">Password must be at least 8 characters.</p>
       }
@@ -40,7 +40,7 @@ import { ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
     </form>
 
     @if (submitted()) {
-      <p role="status">Welcome, {{ form.controls['email'].value }}!</p>
+      <p role="status">Welcome, {{ form.controls["email"].value }}!</p>
     }
   `,
 })
@@ -49,8 +49,8 @@ export class LoginForm {
   protected readonly submitted = signal(false);
 
   protected readonly form = this.fb.group({
-    email: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required, Validators.minLength(8)]],
+    email: ["", [Validators.required, Validators.email]],
+    password: ["", [Validators.required, Validators.minLength(8)]],
   });
 
   submit() {

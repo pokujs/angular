@@ -1,13 +1,13 @@
-import type { AngularDomAdapter } from './plugin-types.ts';
+import type { AngularDomAdapter } from "./plugin-types.ts";
 import {
   buildRunnerCommand as buildCoreRunnerCommand,
   canHandleRuntime,
   createDomSetupPathResolver,
   type BuildRunnerCommandInput,
-} from '@pokujs/dom';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+} from "@pokujs/dom";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 
@@ -17,20 +17,20 @@ const resolveSetupModulePath = (baseName: string) => {
   return resolve(currentDir, `${baseName}.ts`);
 };
 
-const happyDomSetupPath = resolveSetupModulePath('dom-setup-happy');
-const jsdomSetupPath = resolveSetupModulePath('dom-setup-jsdom');
+const happyDomSetupPath = resolveSetupModulePath("dom-setup-happy");
+const jsdomSetupPath = resolveSetupModulePath("dom-setup-jsdom");
 
-// Angular components and tests exclusively use .ts files.
-const angularExtensions = new Set(['.ts']);
+// Angular components and tests use .ts files. Inline templates may use .html.
+const angularExtensions = new Set([".ts", ".html"]);
 
 export const resolveDomSetupPath = createDomSetupPathResolver(
-  '@pokujs/angular',
+  "@pokujs/angular",
   happyDomSetupPath,
-  jsdomSetupPath
+  jsdomSetupPath,
 );
 
 export const buildRunnerCommand = (
-  input: Omit<BuildRunnerCommandInput, 'extensions'>
+  input: Omit<BuildRunnerCommandInput, "extensions">,
 ) => buildCoreRunnerCommand({ ...input, extensions: angularExtensions });
 
 export { canHandleRuntime };

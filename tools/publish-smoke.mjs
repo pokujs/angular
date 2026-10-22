@@ -1,9 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync } from "node:child_process";
 
-const result = spawnSync('npm', ['pack', '--dry-run'], {
-  cwd: new URL('..', import.meta.url),
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
+const result = spawnSync("npm", ["pack", "--dry-run"], {
+  cwd: new URL("..", import.meta.url),
+  stdio: "inherit",
+  shell: process.platform === "win32",
 });
 
 if (result.error) {

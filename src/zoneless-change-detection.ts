@@ -1,5 +1,5 @@
-import type { EnvironmentProviders } from '@angular/core';
-import * as angularCore from '@angular/core';
+import type { EnvironmentProviders } from "@angular/core";
+import * as angularCore from "@angular/core";
 
 type AngularCoreZonelessApi = {
   provideZonelessChangeDetection?: () => EnvironmentProviders;
@@ -14,18 +14,20 @@ const angularCoreZonelessApi = angularCore as AngularCoreZonelessApi;
  * falls back to `provideExperimentalZonelessChangeDetection()` for older releases.
  */
 export const provideCompatibleZonelessChangeDetection = () => {
-  if (typeof angularCoreZonelessApi.provideZonelessChangeDetection === 'function') {
+  if (
+    typeof angularCoreZonelessApi.provideZonelessChangeDetection === "function"
+  ) {
     return angularCoreZonelessApi.provideZonelessChangeDetection();
   }
 
   if (
     typeof angularCoreZonelessApi.provideExperimentalZonelessChangeDetection ===
-    'function'
+    "function"
   ) {
     return angularCoreZonelessApi.provideExperimentalZonelessChangeDetection();
   }
 
   throw new Error(
-    'Angular does not expose provideZonelessChangeDetection or provideExperimentalZonelessChangeDetection.'
+    "Angular does not expose provideZonelessChangeDetection or provideExperimentalZonelessChangeDetection.",
   );
 };
