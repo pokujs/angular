@@ -1,0 +1,70 @@
+name: "🚀 CD — Publish"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish or retry"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+  issues: write
+
+jobs:
+  release-please:
+    if: github.event.repository.fork == false && !inputs.tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: 🤝 Release Please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: release-please
+    if: always() && github.event.repository.fork == false && (inputs.tag || needs.release-please.outputs.created == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.tag || needs.release-please.outputs.tag }}
+    steps:
+      - name: ➕ Actions - Checkout release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: ➕ Actions - Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - name: ✅ Verify release version
+        run: node -e 'const { version } = require("./package.json"); if (process.env.RELEASE_TAG !== `angular-v${version}`) throw new Error("Release tag must match the package version.");'
+
+      - name: 📦 Installing Dependencies
+        run: npm ci
+
+      - name: ✅ Validate
+        run: npm run check
+
+      - name: 📦 Validate package
+        run: npm run test:pack
+
+      - name: 📥 Publishing Package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public

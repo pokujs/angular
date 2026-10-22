@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2026-04-05
+## [1.0.0] - 2026-10-22
 
 ### Added
 
@@ -14,3 +14,5 @@ All notable changes to this project will be documented in this file.
 - Async `fireEvent` wrapper with automatic Angular change detection
 - `angularTestingPlugin` Poku plugin with `happy-dom` and `jsdom` DOM adapters
 - Signal input support via internal `applyValueToInputSignal` mechanism
+- Angular 18–21 compatibility, isolated application runtimes, and scoped cleanup
+- Fragment snapshots, debug helpers, live hook results, and error propagation
