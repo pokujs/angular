@@ -12,7 +12,7 @@ import { useToggle } from "./helpers/use-toggle.ts";
 
 afterEach(cleanup);
 
-test("tests signal composables through a component harness and renderHook", async () => {
+await test("tests signal composables through a component harness and renderHook", async () => {
   await render(ToggleHarness);
 
   assert.strictEqual(
@@ -28,7 +28,7 @@ test("tests signal composables through a component harness and renderHook", asyn
   );
 });
 
-test("tests signal hook logic directly with renderHook", async () => {
+await test("tests signal hook logic directly with renderHook", async () => {
   const { result } = await renderHook(
     ({ initial }: { initial: boolean }) => useToggle(initial),
     { initialProps: { initial: true } },
@@ -42,7 +42,7 @@ test("tests signal hook logic directly with renderHook", async () => {
   assert.strictEqual(result.current.enabled(), false);
 });
 
-test("renderHook.rerender re-evaluates the hook with updated props", async () => {
+await test("renderHook.rerender re-evaluates the hook with updated props", async () => {
   const { result, rerender } = await renderHook(
     ({ initial }: { initial: boolean }) => useToggle(initial),
     { initialProps: { initial: false } },
@@ -56,7 +56,7 @@ test("renderHook.rerender re-evaluates the hook with updated props", async () =>
   assert.strictEqual(result.current.enabled(), true);
 });
 
-test("renderHook.rerender after unmount throws a descriptive error", async () => {
+await test("renderHook.rerender after unmount throws a descriptive error", async () => {
   const { rerender, unmount } = await renderHook(
     ({ initial }: { initial: boolean }) => useToggle(initial),
     { initialProps: { initial: false } },
@@ -70,7 +70,7 @@ test("renderHook.rerender after unmount throws a descriptive error", async () =>
   );
 });
 
-test("renderHook.rerender destroys the previous injection context", async () => {
+await test("renderHook.rerender destroys the previous injection context", async () => {
   const destroyed: string[] = [];
 
   const { rerender, unmount } = await renderHook(
@@ -93,7 +93,7 @@ test("renderHook.rerender destroys the previous injection context", async () => 
   assert.deepStrictEqual(destroyed, ["first", "second"]);
 });
 
-test("renderHook.rerender rolls back the next execution if previous cleanup fails", async () => {
+await test("renderHook.rerender rolls back the next execution if previous cleanup fails", async () => {
   const destroyed: string[] = [];
   let shouldThrowOnFirstDestroy = true;
 

@@ -41,13 +41,13 @@ class ThrowingClickComponent {
 
 afterEach(cleanup);
 
-test("cleanup with no mounted components does not throw", async () => {
+await test("cleanup with no mounted components does not throw", async () => {
   // calling cleanup on an empty slate must be a no-op
   await cleanup();
   assert.ok(true);
 });
 
-test("double cleanup does not throw and leaves the DOM clean", async () => {
+await test("double cleanup does not throw and leaves the DOM clean", async () => {
   await render(CounterButton, { inputs: { initialCount: 3 } });
 
   await cleanup();
@@ -57,7 +57,7 @@ test("double cleanup does not throw and leaves the DOM clean", async () => {
   assert.throws(() => screen.getByRole("heading", { name: "Count: 3" }));
 });
 
-test("cleanup removes the mounted component from the DOM", async () => {
+await test("cleanup removes the mounted component from the DOM", async () => {
   await render(CounterButton, { inputs: { initialCount: 5 } });
 
   assert.strictEqual(
@@ -70,7 +70,7 @@ test("cleanup removes the mounted component from the DOM", async () => {
   assert.throws(() => screen.getByRole("heading", { name: "Count: 5" }));
 });
 
-test("cleanup only removes components from the current scope, not others", async () => {
+await test("cleanup only removes components from the current scope, not others", async () => {
   // Render two components in the same synchronous scope.
   await render(CounterButton, { inputs: { initialCount: 1 } });
   await render(CounterButton, { inputs: { initialCount: 2 } });
@@ -78,7 +78,7 @@ test("cleanup only removes components from the current scope, not others", async
   // Implicit cleanup via afterEach should remove both without throwing.
 });
 
-test("cleanup surfaces ngOnDestroy failures instead of swallowing them", async () => {
+await test("cleanup surfaces ngOnDestroy failures instead of swallowing them", async () => {
   await render(ThrowingDestroyComponent);
   await render(CounterButton, { inputs: { initialCount: 8 } });
 
@@ -89,7 +89,7 @@ test("cleanup surfaces ngOnDestroy failures instead of swallowing them", async (
   assert.throws(() => screen.getByRole("heading", { name: "Count: 8" }));
 });
 
-test("fireEvent surfaces post-event change-detection failures", async () => {
+await test("fireEvent surfaces post-event change-detection failures", async () => {
   await render(ThrowingClickComponent);
 
   await assert.rejects(

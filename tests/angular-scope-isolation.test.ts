@@ -117,10 +117,10 @@ const testHooksEnabled = async () => {
   ]);
 };
 
-describe("angular scope isolation", () => {
+await describe("angular scope isolation", async () => {
   let hasRegisteredHooks = false;
 
-  it("scope-hook contract probe", () => {
+  await it("scope-hook contract probe", () => {
     const g = globalThis as Record<symbol, ScopeHooks | undefined>;
     hasRegisteredHooks = typeof g[SCOPE_HOOKS_KEY] === "object";
     assert.ok(true, "runtime probe");
@@ -133,5 +133,8 @@ describe("angular scope isolation", () => {
     );
   }
 
-  it("test hooks are enabled when scope hooks are available", testHooksEnabled);
+  await it(
+    "test hooks are enabled when scope hooks are available",
+    testHooksEnabled,
+  );
 });
