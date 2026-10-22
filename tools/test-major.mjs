@@ -28,7 +28,7 @@ const packages = [
 ].map((name) => `@angular/${name}@${version}`);
 
 for (const args of [
-  ["install", "--no-save", "--package-lock=false", ...packages],
+  ["install", "--no-save", ...packages],
   ["test"],
 ]) {
   const result = spawnSync(npm, args, { stdio: "inherit" });
