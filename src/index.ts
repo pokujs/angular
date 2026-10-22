@@ -1,11 +1,15 @@
 /** Plugin factory and alias for Poku integration. */
-export { createAngularTestingPlugin, angularTestingPlugin } from './plugin.ts';
+export {
+  createAngularTestingPlugin,
+  angularTestingPlugin,
+  angularTestPlugin,
+} from "./plugin.ts";
 export type {
   AngularDomAdapter,
   AngularMetricsOptions,
   AngularMetricsSummary,
   AngularTestingPluginOptions,
-} from './plugin.ts';
+} from "./plugin.ts";
 /** Angular testing helpers and DX exports. */
 export {
   cleanup,
@@ -13,5 +17,13 @@ export {
   render,
   renderHook,
   screen,
-} from './angular-testing.ts';
-export * from './angular-testing.ts';
+  waitFor,
+} from "./angular-testing.ts";
+export type {
+  AngularFixture,
+  RenderHookOptions,
+  RenderHookResult,
+  RenderOptions,
+  RenderResult,
+} from "./angular-testing.ts";
+export * from "@testing-library/dom";

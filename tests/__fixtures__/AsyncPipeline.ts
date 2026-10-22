@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal } from "@angular/core";
 
 /**
  * Component that loads asynchronously in `ngOnInit` and exposes a two-phase
@@ -12,7 +12,7 @@ import { Component, OnInit, signal } from '@angular/core';
  */
 @Component({
   standalone: true,
-  selector: 'app-async-pipeline',
+  selector: "app-async-pipeline",
   template: `
     @if (loaded()) {
       <h2>Loaded from async setup</h2>
@@ -24,8 +24,8 @@ import { Component, OnInit, signal } from '@angular/core';
 })
 export class AsyncPipeline implements OnInit {
   protected readonly loaded = signal(false);
-  protected readonly urgentState = signal('idle');
-  protected readonly deferredState = signal('idle');
+  protected readonly urgentState = signal("idle");
+  protected readonly deferredState = signal("idle");
 
   async ngOnInit() {
     // Simulate an async data-fetch / route resolver pattern.
@@ -35,9 +35,9 @@ export class AsyncPipeline implements OnInit {
 
   async runPipeline() {
     // Urgent update — synchronous signal write.
-    this.urgentState.set('urgent-updated');
+    this.urgentState.set("urgent-updated");
     // Deferred update — queued as a microtask, just like Vue's queue.
     await Promise.resolve();
-    this.deferredState.set('queued-updated');
+    this.deferredState.set("queued-updated");
   }
 }

@@ -1,4 +1,8 @@
-import type { BoundFunctions, Screen } from "@testing-library/dom";
+import type {
+  BoundFunctions,
+  PrettyDOMOptions,
+  Screen,
+} from "@testing-library/dom";
 import type {
   ApplicationRef,
   ChangeDetectorRef,
@@ -12,7 +16,6 @@ import type {
 import type { EnvironmentProviders } from "@angular/core";
 import { getQueriesForElement, queries } from "@testing-library/dom";
 import * as domTestingLibrary from "@testing-library/dom";
-import * as pokuDom from "@pokujs/dom";
 import {
   VERSION,
   createComponent,
@@ -22,6 +25,10 @@ import {
   runInInjectionContext,
 } from "@angular/core";
 import {
+  createAsFragment,
+  createDebug,
+  createScopedRegistry,
+  createWaitFor,
   createRenderMetricsEmitter,
   createScreen,
   getNow,
@@ -31,28 +38,11 @@ import { createApplication } from "@angular/platform-browser";
 import { parseRuntimeOptions } from "./runtime-options.ts";
 import { provideCompatibleZonelessChangeDetection } from "./zoneless-change-detection.ts";
 
-const runtimeOptions = parseRuntimeOptions();
 const metrics = createRenderMetricsEmitter({
-  runtimeOptions,
+  runtimeOptions: () => parseRuntimeOptions(),
   metricsStateKey: Symbol.for("@pokujs/angular.metrics-runtime-state"),
   metricsBatchMessageType: "POKU_ANGULAR_RENDER_METRIC_BATCH",
 });
-
-type ScopeSlot<T> = {
-  readonly value: T;
-};
-
-type ScopeLike = {
-  getOrCreateSlot<T>(key: symbol, init: () => T): ScopeSlot<T>;
-  getSlot?<T>(key: symbol): ScopeSlot<T> | undefined;
-  addCleanup?(fn: () => void | Promise<void>): void;
-};
-
-type DomScopeApi = {
-  defineSlotKey?: <T>(name: string) => symbol;
-  getOrCreateScope?: () => ScopeLike | undefined;
-  getCurrentScope?: () => ScopeLike | undefined;
-};
 
 type MountedHandle = {
   destroy(): void;
@@ -67,11 +57,6 @@ type RenderHookExecution<Result> = {
   injector: EnvironmentInjector;
   result: Result;
   destroyed: boolean;
-};
-
-type ScopedRuntimeState = {
-  mountedHandles: Set<MountedHandle>;
-  cleanupRegistered: boolean;
 };
 
 export type AngularFixture<T> = {
@@ -90,29 +75,6 @@ export type AngularFixture<T> = {
 };
 
 type RenderFixture<T> = AngularFixture<T>;
-
-const domScopeApi = pokuDom as unknown as DomScopeApi;
-
-const RUNTIME_STATE_SLOT_KEY =
-  typeof domScopeApi.defineSlotKey === "function"
-    ? domScopeApi.defineSlotKey<ScopedRuntimeState>(
-        "@pokujs/angular.runtime-state",
-      )
-    : undefined;
-
-const fallbackMountedHandles = new Set<MountedHandle>();
-
-const supportedAngularMajorRange = {
-  min: 18,
-  max: 21,
-} as const;
-
-const currentAngularMajor = Number.parseInt(VERSION.major, 10);
-
-const canUseSignalInputFallback =
-  Number.isFinite(currentAngularMajor) &&
-  currentAngularMajor >= supportedAngularMajorRange.min &&
-  currentAngularMajor <= supportedAngularMajorRange.max;
 
 const throwCollectedErrors = (errors: unknown[], message: string) => {
   if (errors.length === 0) return;
@@ -154,104 +116,263 @@ const destroyMountedHandles = (mountedHandles: Set<MountedHandle>) => {
   );
 };
 
-const getScopedRuntimeState = (): ScopedRuntimeState | undefined => {
-  if (!RUNTIME_STATE_SLOT_KEY) return undefined;
-  if (typeof domScopeApi.getOrCreateScope !== "function") return undefined;
+const registry = createScopedRegistry<MountedHandle>({
+  name: "@pokujs/angular.mounted-handles",
+  onCleanup: (handles) => {
+    try {
+      destroyMountedHandles(handles);
+    } finally {
+      metrics.flushMetricBuffer();
+    }
+  },
+});
 
-  const scope = domScopeApi.getOrCreateScope();
-  if (!scope) return undefined;
+const getMountedHandles = (): Set<MountedHandle> => registry.getItems();
+const getCurrentMountedHandles = (): Set<MountedHandle> =>
+  registry.getScopedItems() ?? registry.fallbackItems;
 
-  const state = scope.getOrCreateSlot(RUNTIME_STATE_SLOT_KEY, () => ({
-    mountedHandles: new Set<MountedHandle>(),
-    cleanupRegistered: false,
-  })).value;
+const SIGNAL_SYMBOL_STR = "Symbol(SIGNAL)";
+const INPUT_FLAGS_SIGNAL_BASED = 1;
+const ALIAS_OPTION_REGEX = /\balias\s*:\s*['"]([^'"]+)['"]/;
+const SIGNAL_FACTORY_PREFIX_REGEX =
+  /(?:this\.)?([A-Za-z_$][\w$]*)\s*=\s*(?:[\w$]+\.)?(input|model|output|outputFromObservable)(?:\.required)?\s*(?:<[^>]*>)?\s*\(/g;
 
-  if (!state.cleanupRegistered && typeof scope.addCleanup === "function") {
-    state.cleanupRegistered = true;
-    scope.addCleanup(() => {
-      try {
-        destroyMountedHandles(state.mountedHandles);
-      } finally {
-        metrics.flushMetricBuffer();
+type NgDirectiveDefLike = {
+  inputs: Record<string, [string, number, unknown]>;
+  declaredInputs: Record<string, string>;
+  outputs: Record<string, string>;
+  dependencies?: (() => unknown[]) | unknown[] | null;
+  tView?: unknown;
+};
+
+const extractBalancedArgs = (
+  source: string,
+  openParenAfterIndex: number,
+): string => {
+  let depth = 1;
+  let i = openParenAfterIndex;
+  while (i < source.length && depth > 0) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"' || ch === "`") {
+      const quote = ch;
+      i++;
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === "\\") i++;
+        i++;
       }
-    });
+    } else if (ch === "(") {
+      depth++;
+    } else if (ch === ")") {
+      depth--;
+      if (depth === 0) break;
+    }
+    i++;
+  }
+  return source.slice(openParenAfterIndex, i);
+};
+
+const extractAliasOrName = (
+  privateName: string,
+  argsSource: string,
+): string => {
+  const aliasMatch = ALIAS_OPTION_REGEX.exec(argsSource);
+  return aliasMatch?.[1] || privateName;
+};
+
+const patchDefSignalMetadata = (
+  target: Function,
+  def: NgDirectiveDefLike,
+): void => {
+  let inputsMutated = false;
+  let outputsMutated = false;
+
+  const ensureMutableInputs = () => {
+    if (!inputsMutated) {
+      def.inputs = { ...def.inputs };
+      def.declaredInputs = { ...def.declaredInputs };
+      inputsMutated = true;
+    }
+  };
+
+  const ensureMutableOutputs = () => {
+    if (!outputsMutated) {
+      def.outputs = { ...def.outputs };
+      outputsMutated = true;
+    }
+  };
+
+  for (
+    let ctor: unknown = target;
+    typeof ctor === "function" && ctor !== Function.prototype;
+    ctor = Object.getPrototypeOf(ctor)
+  ) {
+    const source = Function.prototype.toString.call(ctor);
+
+    for (const match of source.matchAll(SIGNAL_FACTORY_PREFIX_REGEX)) {
+      const privateName = match[1];
+      const kind = match[2];
+      if (!privateName || !kind) continue;
+
+      const argsStart = (match.index ?? 0) + match[0].length;
+      const argsSource = extractBalancedArgs(source, argsStart);
+      const publicName = extractAliasOrName(privateName, argsSource);
+
+      if (kind === "input") {
+        if (!Object.prototype.hasOwnProperty.call(def.inputs, publicName)) {
+          ensureMutableInputs();
+          def.inputs[publicName] = [
+            privateName,
+            INPUT_FLAGS_SIGNAL_BASED,
+            null,
+          ];
+          def.declaredInputs[publicName] = privateName;
+        }
+      } else if (kind === "model") {
+        if (!Object.prototype.hasOwnProperty.call(def.inputs, publicName)) {
+          ensureMutableInputs();
+          def.inputs[publicName] = [
+            privateName,
+            INPUT_FLAGS_SIGNAL_BASED,
+            null,
+          ];
+          def.declaredInputs[publicName] = privateName;
+        }
+        const outputName = `${publicName}Change`;
+        if (!Object.prototype.hasOwnProperty.call(def.outputs, outputName)) {
+          ensureMutableOutputs();
+          def.outputs[outputName] = privateName;
+        }
+      } else {
+        if (!Object.prototype.hasOwnProperty.call(def.outputs, publicName)) {
+          ensureMutableOutputs();
+          def.outputs[publicName] = privateName;
+        }
+      }
+    }
   }
 
-  return state;
+  if ((inputsMutated || outputsMutated) && def.tView) {
+    def.tView = null;
+  }
 };
 
-const getCurrentScopedRuntimeState = (): ScopedRuntimeState | undefined => {
-  if (!RUNTIME_STATE_SLOT_KEY) return undefined;
-  if (typeof domScopeApi.getCurrentScope !== "function") return undefined;
+const registerJitSignalInputsAndOutputs = (
+  root: unknown,
+  visited = new Set<unknown>(),
+): void => {
+  if (!root || visited.has(root)) return;
+  visited.add(root);
 
-  const scope = domScopeApi.getCurrentScope();
-  const slot = scope?.getSlot?.<ScopedRuntimeState>(RUNTIME_STATE_SLOT_KEY);
-  return slot?.value;
+  if (Array.isArray(root)) {
+    for (const item of root) {
+      registerJitSignalInputsAndOutputs(item, visited);
+    }
+    return;
+  }
+
+  if (typeof root !== "function") return;
+
+  const typed = root as unknown as {
+    ɵcmp?: NgDirectiveDefLike;
+    ɵdir?: NgDirectiveDefLike;
+    ɵmod?: {
+      imports?: unknown[] | (() => unknown[]);
+      declarations?: unknown[] | (() => unknown[]);
+      exports?: unknown[] | (() => unknown[]);
+    };
+  };
+
+  const def = typed.ɵcmp ?? typed.ɵdir;
+  if (def) {
+    patchDefSignalMetadata(root, def);
+    const deps =
+      typeof def.dependencies === "function"
+        ? def.dependencies()
+        : def.dependencies;
+    if (deps) {
+      registerJitSignalInputsAndOutputs(deps, visited);
+    }
+  }
+
+  if (typed.ɵmod) {
+    const mod = typed.ɵmod;
+    for (const group of [mod.imports, mod.declarations, mod.exports]) {
+      const resolved = typeof group === "function" ? group() : group;
+      if (resolved) {
+        registerJitSignalInputsAndOutputs(resolved, visited);
+      }
+    }
+  }
 };
 
-const getMountedHandles = (): Set<MountedHandle> =>
-  getScopedRuntimeState()?.mountedHandles ?? fallbackMountedHandles;
+const getSignalNode = (value: unknown): Record<string, unknown> | null => {
+  if (typeof value !== "function") return null;
+  const sym = Object.getOwnPropertySymbols(value).find(
+    (s) => s.toString() === SIGNAL_SYMBOL_STR,
+  );
+  return sym
+    ? ((value as unknown as Record<symbol, unknown>)[sym] as Record<
+        string,
+        unknown
+      >)
+    : null;
+};
 
-const getCurrentMountedHandles = (): Set<MountedHandle> =>
-  getCurrentScopedRuntimeState()?.mountedHandles ?? fallbackMountedHandles;
-
-/**
- * Attempt to set an Angular signal input directly via the signal node's own
- * internal setter.  This is required in JIT-compiled test environments where
- * Angular's JIT compiler does not register signal inputs (`input()`) in the
- * component def's `inputs` map, causing `ComponentRef.setInput()` to log
- * NG0303 and return without updating the signal.
- *
- * Detection: locate the canonical `'SIGNAL'` symbol on the instance property
- * via `Symbol.prototype.description` (ES2019+) and verify the node exposes
- * `applyValueToInputSignal`.  The `'SIGNAL'` description is Angular's
- * foundational reactive primitive — the same one that drives every template
- * binding — so it is maximally stable.
- *
- * Returns `true` if the value was applied, `false` if the property is not a
- * recognised signal input (caller should fall back to `ComponentRef.setInput`).
- */
-const trySetSignalInput = (
+const applyInputValue = (
+  componentRef: ComponentRef<unknown>,
   instance: Record<string, unknown>,
   key: string,
   value: unknown,
-): boolean => {
-  if (!canUseSignalInputFallback) return false;
+): void => {
+  const cmpDef = (
+    componentRef.componentType as unknown as {
+      ɵcmp?: NgDirectiveDefLike;
+    }
+  ).ɵcmp;
+  const privateKey = cmpDef?.inputs?.[key]?.[0] ?? key;
+  const currentProp = instance[privateKey];
+  const node = getSignalNode(currentProp);
+  if (node) {
+    const transformFn = node["transformFn"] as
+      | ((v: unknown) => unknown)
+      | undefined;
+    const nextValue =
+      typeof transformFn === "function" ? transformFn(value) : value;
 
-  const prop = instance[key];
-  if (typeof prop !== "function") return false;
+    // InputSignalNode has `applyValueToInputSignal`; WritableSignalNode does not.
+    const applyFn = node["applyValueToInputSignal"] as
+      | ((n: Record<string, unknown>, v: unknown) => void)
+      | undefined;
 
-  const signalSym = Object.getOwnPropertySymbols(prop).find(
-    (s) => s.description === "SIGNAL",
-  );
-  if (!signalSym) return false;
+    if (typeof applyFn === "function") {
+      applyFn(node, nextValue);
+      return;
+    }
+  }
 
-  const node = (prop as unknown as Record<symbol, unknown>)[
-    signalSym
-  ] as Record<string, unknown>;
-  if (node === null || typeof node !== "object") return false;
+  if (
+    typeof currentProp === "function" &&
+    typeof (currentProp as unknown as { set?: (v: unknown) => void }).set ===
+      "function"
+  ) {
+    (currentProp as unknown as { set: (v: unknown) => void }).set(value);
+    return;
+  }
 
-  const applyFn = node["applyValueToInputSignal"];
-  if (typeof applyFn !== "function") return false;
-
-  (applyFn as (n: unknown, v: unknown) => void)(node, value);
-  return true;
+  try {
+    componentRef.setInput(key, value);
+  } catch {
+    instance[privateKey] = value;
+  }
 };
 
 const applyInputs = (
   componentRef: ComponentRef<unknown>,
   inputs: Record<string, unknown>,
 ): void => {
-  const instance = componentRef.instance as Record<string, unknown>;
+  const instance = componentRef.instance as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(inputs)) {
-    // Probe for a signal input first.  In JIT mode, `ComponentRef.setInput()`
-    // silently no-ops for `input()` signal properties (logging NG0303 to the
-    // console) because the JIT compiler does not add them to the component
-    // def's inputs map.  The signal-node path bypasses that limitation while
-    // the public API handles all traditional `@Input()` decorators.
-    if (!trySetSignalInput(instance, key, value)) {
-      componentRef.setInput(key, value);
-    }
+    applyInputValue(componentRef, instance, key, value);
   }
 };
 
@@ -294,9 +415,11 @@ const createFixture = <T>(
   let destroyed = false;
   let stable = false;
 
-  const stabilitySubscription = applicationRef.isStable.subscribe((isStable) => {
-    stable = isStable;
-  });
+  const stabilitySubscription = applicationRef.isStable.subscribe(
+    (isStable) => {
+      stable = isStable;
+    },
+  );
 
   const waitForStability = async () => {
     await applicationRef.whenStable();
@@ -384,7 +507,9 @@ const createRenderHookExecution = <Result, Props>(
   }
 };
 
-const destroyRenderHookExecution = (execution: RenderHookExecution<unknown>) => {
+const destroyRenderHookExecution = (
+  execution: RenderHookExecution<unknown>,
+) => {
   if (execution.destroyed) return;
 
   try {
@@ -405,6 +530,13 @@ export type RenderResult<T = unknown> = BoundFunctions<typeof queries> & {
   container: HTMLElement;
   baseElement: HTMLElement;
   fixture: AngularFixture<T>;
+  componentInstance: T;
+  asFragment: () => DocumentFragment;
+  debug: (
+    element?: Array<Element | HTMLDocument> | Element | HTMLDocument,
+    maxLength?: number,
+    options?: PrettyDOMOptions,
+  ) => void;
   detectChanges: () => Promise<void>;
   unmount: () => void;
   rerender: (inputs?: Record<string, unknown>) => Promise<void>;
@@ -438,6 +570,8 @@ export const render = async <T>(
   const container = document.createElement("div");
   baseElement.appendChild(container);
 
+  registerJitSignalInputsAndOutputs([component, ...(options.imports ?? [])]);
+
   const componentRef = createComponent(component, {
     environmentInjector: runtimeApplication.injector,
     hostElement: container,
@@ -448,7 +582,10 @@ export const render = async <T>(
     runCleanupSteps(
       [
         () => {
-          if (!runtimeApplication.destroyed && !componentRef.hostView.destroyed) {
+          if (
+            !runtimeApplication.destroyed &&
+            !componentRef.hostView.destroyed
+          ) {
             runtimeApplication.detachView(componentRef.hostView);
           }
         },
@@ -522,13 +659,16 @@ export const render = async <T>(
     container,
     baseElement,
     fixture,
+    componentInstance: componentRef.instance,
+    asFragment: createAsFragment(container),
+    debug: createDebug(baseElement),
     detectChanges,
     unmount,
     rerender,
   };
 };
 
-export const renderHook = async <Result, Props = Record<string, unknown>>(
+export const renderHook = async <Result, Props = undefined>(
   hookFn: (props: Props) => Result,
   options: RenderHookOptions<Props> = {},
 ): Promise<RenderHookResult<Result, Props>> => {
@@ -553,7 +693,7 @@ export const renderHook = async <Result, Props = Record<string, unknown>>(
     get current() {
       return currentResult;
     },
-  } as { current: Result };
+  };
 
   const handle: MountedHandle = {
     destroy() {
@@ -630,6 +770,7 @@ export const renderHook = async <Result, Props = Record<string, unknown>>(
 export const cleanup = async () => {
   try {
     destroyMountedHandles(getCurrentMountedHandles());
+    destroyMountedHandles(registry.fallbackItems);
   } finally {
     metrics.flushMetricBuffer();
   }
@@ -668,3 +809,7 @@ wrapFireEventMethods(
 );
 
 export const fireEvent = wrappedFireEvent;
+
+export const waitFor = createWaitFor(domTestingLibrary.waitFor);
+
+export * from "@testing-library/dom";

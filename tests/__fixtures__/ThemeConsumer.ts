@@ -1,5 +1,5 @@
-import { Component, inject } from '@angular/core';
-import { THEME_TOKEN } from './ThemeToken.ts';
+import { Component, inject } from "@angular/core";
+import { THEME_TOKEN } from "./ThemeToken.ts";
 
 /**
  * Reads the active theme from Angular's DI tree via `inject()`.
@@ -7,7 +7,7 @@ import { THEME_TOKEN } from './ThemeToken.ts';
  */
 @Component({
   standalone: true,
-  selector: 'app-theme-consumer',
+  selector: "app-theme-consumer",
   template: `<p>Theme: {{ theme }}</p>`,
 })
 export class ThemeConsumer {

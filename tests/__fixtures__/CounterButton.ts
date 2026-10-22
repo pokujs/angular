@@ -1,4 +1,4 @@
-import { Component, computed, input, signal } from '@angular/core';
+import { Component, computed, input, signal } from "@angular/core";
 
 /**
  * Standalone counter component using Angular signal inputs and computed state.
@@ -8,7 +8,7 @@ import { Component, computed, input, signal } from '@angular/core';
  */
 @Component({
   standalone: true,
-  selector: 'app-counter-button',
+  selector: "app-counter-button",
   template: `
     <section>
       <h1>Count: {{ count() }}</h1>

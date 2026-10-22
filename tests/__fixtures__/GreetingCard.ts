@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input } from "@angular/core";
 
 /**
  * Simple card component with a required signal input.
@@ -6,7 +6,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   standalone: true,
-  selector: 'app-greeting-card',
+  selector: "app-greeting-card",
   template: `<h3>Hello {{ name() }}</h3>`,
 })
 export class GreetingCard {

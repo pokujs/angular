@@ -1,5 +1,5 @@
-import { Component, inject } from '@angular/core';
-import { CounterService } from './CounterService.ts';
+import { Component, inject } from "@angular/core";
+import { CounterService } from "./CounterService.ts";
 
 /**
  * Standalone component that consumes `CounterService` via `inject()`.
@@ -7,7 +7,7 @@ import { CounterService } from './CounterService.ts';
  */
 @Component({
   standalone: true,
-  selector: 'app-service-consumer',
+  selector: "app-service-consumer",
   template: `
     <section>
       <h1>Count: {{ service.count() }}</h1>
